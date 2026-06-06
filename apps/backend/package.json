@@ -13,6 +13,7 @@
     "db:studio": "prisma studio",
     "db:seed": "tsx src/prisma/seed.ts",
     "workers:dev": "tsx watch src/workers/index.ts",
+    "workers:start": "node dist/workers/index.js",
     "download-models": "tsx src/scripts/download-models.ts"
   },
   "dependencies": {
