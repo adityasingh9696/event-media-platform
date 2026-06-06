@@ -52,6 +52,7 @@
       "@napi-rs/canvas",
       "msgpackr-extract",
       "@prisma/engines",
+      "@prisma/client",
       "prisma",
       "core-js"
     ]

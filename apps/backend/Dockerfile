@@ -19,6 +19,7 @@ RUN pnpm --filter backend run build
 
 # Production runner stage
 FROM node:20-alpine AS runner
+RUN apk add --no-cache openssl libc6-compat
 WORKDIR /app
 RUN npm install -g pnpm
 
@@ -32,6 +33,7 @@ COPY --from=builder /app/apps/backend/prisma ./apps/backend/prisma
 
 # Install production dependencies only
 RUN pnpm install --prod --frozen-lockfile
+RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" pnpm --filter backend run db:generate
 
 EXPOSE 4000
 
