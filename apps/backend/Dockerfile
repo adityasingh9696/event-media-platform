@@ -12,7 +12,7 @@ RUN pnpm install --frozen-lockfile
 # Build stage
 FROM base AS builder
 WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app /app
 COPY . .
 RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" pnpm --filter backend run db:generate
 RUN pnpm --filter backend run build
