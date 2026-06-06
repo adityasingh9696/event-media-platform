@@ -1,0 +1,59 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
+coverage/
+.nyc_output/
+
+# Prisma
+apps/backend/prisma/migrations/*.sql
+# Keep migrations committed! Only ignore if necessary
+# Uncomment above line if you want to reset migrations
+
+# Docker volumes (local data)
+postgres_data/
+mongo_data/
+redis_data/
+es_data/
+
+# Uploads (local dev only — use S3 in production)
+apps/backend/uploads/
+
+# Generated files
+apps/backend/generated/
+apps/frontend/.next/
+
+# pnpm
+.pnpm-store/
+
+# Face-API Models
+apps/backend/models/

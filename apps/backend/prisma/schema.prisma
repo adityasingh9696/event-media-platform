@@ -1,0 +1,396 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────────────────────────
+
+enum Role {
+  admin
+  photographer
+  club_member
+  viewer
+}
+
+enum ClubRole {
+  admin
+  photographer
+  member
+  viewer
+}
+
+enum Visibility {
+  public
+  club_only
+  private
+}
+
+enum EventCategory {
+  workshop
+  trip
+  cultural
+  party
+  competition
+  photoshoot
+  other
+}
+
+enum MediaType {
+  image
+  video
+}
+
+enum NotificationType {
+  media_liked
+  media_commented
+  media_tagged
+  media_shared
+  friend_tagged
+  system
+}
+
+// ─────────────────────────────────────────────────────────────────
+// USERS & CLUBS
+// ─────────────────────────────────────────────────────────────────
+
+model User {
+  id               String   @id @default(cuid())
+  email            String   @unique
+  username         String   @unique
+  displayName      String
+  passwordHash     String?
+  avatarUrl        String?
+  bio              String?
+  role             Role     @default(viewer)
+  googleId         String?  @unique
+  isActive         Boolean  @default(true)
+  faceEnrollmentEnabled Boolean @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relations
+  clubMemberships  ClubMember[]
+  uploadedMedia    Media[]        @relation("Uploader")
+  likes            Like[]
+  comments         Comment[]
+  favorites        Favorite[]
+  taggedIn         MediaTag[]     @relation("TaggedUser")
+  taggedBy         MediaTag[]     @relation("TaggerUser")
+  shares           Share[]
+  notificationsReceived Notification[] @relation("NotificationRecipient")
+  notificationsSent     Notification[] @relation("NotificationSender")
+  faceEmbeddings   FaceEmbedding[]
+  photoPersons     PhotoPerson[]
+
+  @@index([email])
+  @@index([username])
+  @@index([googleId])
+}
+
+model Club {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  logoUrl     String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  members     ClubMember[]
+  events      Event[]
+  watermarkConfig WatermarkConfig?
+
+  @@index([slug])
+}
+
+model ClubMember {
+  id       String   @id @default(cuid())
+  userId   String
+  clubId   String
+  role     ClubRole @default(member)
+  joinedAt DateTime @default(now())
+
+  user     User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  club     Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clubId])
+  @@index([userId])
+  @@index([clubId])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// EVENTS & ALBUMS
+// ─────────────────────────────────────────────────────────────────
+
+model Event {
+  id          String        @id @default(cuid())
+  name        String
+  description String?
+  category    EventCategory @default(other)
+  coverImageUrl String?
+  date        DateTime
+  location    String?
+  visibility  Visibility    @default(public)
+  clubId      String
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  club        Club    @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  albums      Album[]
+
+  @@index([clubId])
+  @@index([date])
+  @@index([category])
+  @@index([visibility])
+}
+
+model Album {
+  id          String     @id @default(cuid())
+  name        String
+  description String?
+  coverImageUrl String?
+  visibility  Visibility @default(public)
+  eventId     String
+  shareCode   String?    @unique
+  sharePassword String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  event       Event   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  media       Media[]
+
+  @@index([eventId])
+  @@index([shareCode])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// MEDIA
+// ─────────────────────────────────────────────────────────────────
+
+model Media {
+  id           String    @id @default(cuid())
+  title        String?
+  description  String?
+  s3Key        String    @unique
+  mimeType     String
+  sizeBytes    BigInt
+  mediaType    MediaType
+  visibility   Visibility @default(public)
+  albumId      String
+  uploaderId   String
+  width        Int?
+  height       Int?
+  durationSecs Float?    // for videos
+  blurHash     String?   // for progressive loading
+  aiCaptionGenerated Boolean @default(false)
+  isProcessed  Boolean   @default(false)
+  isModerationFlagged Boolean @default(false)
+  perceptualHash String? // for duplicate detection
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  album        Album     @relation(fields: [albumId], references: [id], onDelete: Cascade)
+  uploader     User      @relation("Uploader", fields: [uploaderId], references: [id])
+  likes        Like[]
+  comments     Comment[]
+  favorites    Favorite[]
+  tags         MediaTag[]
+  shares       Share[]
+  photoPersons PhotoPerson[]
+
+  @@index([albumId])
+  @@index([uploaderId])
+  @@index([createdAt])
+  @@index([visibility])
+  @@index([mediaType])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// TAGS
+// ─────────────────────────────────────────────────────────────────
+
+model Tag {
+  id    String     @id @default(cuid())
+  name  String     @unique
+  media MediaTag[]
+
+  @@index([name])
+}
+
+model MediaTag {
+  id            String   @id @default(cuid())
+  mediaId       String
+  tagId         String?          // AI-generated tag
+  taggedUserId  String?          // Human user tag
+  taggedById    String?          // Who tagged
+  xPos          Float?           // Tag position on image (0-1)
+  yPos          Float?           // Tag position on image (0-1)
+  confidence    Float?           // AI confidence (0-100)
+  source        String   @default("manual") // "ai" | "manual"
+  createdAt     DateTime @default(now())
+
+  media         Media @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  tag           Tag?  @relation(fields: [tagId], references: [id])
+  taggedUser    User? @relation("TaggedUser", fields: [taggedUserId], references: [id])
+  tagger        User? @relation("TaggerUser", fields: [taggedById], references: [id])
+
+  @@index([mediaId])
+  @@index([tagId])
+  @@index([taggedUserId])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// SOCIAL
+// ─────────────────────────────────────────────────────────────────
+
+model Like {
+  id        String   @id @default(cuid())
+  mediaId   String
+  userId    String
+  createdAt DateTime @default(now())
+
+  media     Media @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  user      User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([mediaId, userId])
+  @@index([mediaId])
+  @@index([userId])
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  text      String
+  mediaId   String
+  userId    String
+  parentId  String?  // for threaded comments
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  media     Media    @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent    Comment? @relation("CommentThread", fields: [parentId], references: [id])
+  replies   Comment[] @relation("CommentThread")
+
+  @@index([mediaId])
+  @@index([userId])
+  @@index([parentId])
+}
+
+model Favorite {
+  id        String   @id @default(cuid())
+  mediaId   String
+  userId    String
+  createdAt DateTime @default(now())
+
+  media     Media @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  user      User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([mediaId, userId])
+  @@index([mediaId])
+  @@index([userId])
+}
+
+model Share {
+  id         String    @id @default(cuid())
+  mediaId    String
+  userId     String
+  shortCode  String    @unique
+  expiresAt  DateTime?
+  viewCount  Int       @default(0)
+  createdAt  DateTime  @default(now())
+
+  media      Media @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  user       User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([shortCode])
+  @@index([mediaId])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// NOTIFICATIONS
+// ─────────────────────────────────────────────────────────────────
+
+model Notification {
+  id          String           @id @default(cuid())
+  type        NotificationType
+  recipientId String
+  senderId    String?
+  message     String
+  metadata    Json?            // { mediaId, commentId, etc. }
+  isRead      Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+
+  recipient   User  @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  sender      User? @relation("NotificationSender", fields: [senderId], references: [id])
+
+  @@index([recipientId])
+  @@index([recipientId, isRead])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// AI / FACIAL RECOGNITION
+// ─────────────────────────────────────────────────────────────────
+
+model FaceEmbedding {
+  id               String   @id @default(cuid())
+  userId           String
+  clubId           String
+  rekognitionFaceId String  // AWS Rekognition FaceId
+  selfieS3Key      String
+  createdAt        DateTime @default(now())
+
+  user             User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clubId])
+  @@index([userId])
+  @@index([clubId])
+}
+
+model PhotoPerson {
+  id         String   @id @default(cuid())
+  mediaId    String
+  userId     String
+  confidence Float    // Rekognition confidence score
+  createdAt  DateTime @default(now())
+
+  media      Media @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  user       User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([mediaId, userId])
+  @@index([mediaId])
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// WATERMARK CONFIG
+// ─────────────────────────────────────────────────────────────────
+
+model WatermarkConfig {
+  id            String  @id @default(cuid())
+  clubId        String  @unique
+  includeClubName   Boolean @default(true)
+  includeEventName  Boolean @default(true)
+  includeUserRole   Boolean @default(true)
+  includeTimestamp  Boolean @default(false)
+  memberOpacity     Float   @default(0.5)   // 0-1
+  adminOpacity      Float   @default(0.3)
+  memberDiagonal    Boolean @default(true)
+  adminDiagonal     Boolean @default(false)
+  position          String  @default("southeast") // "southeast" | "center"
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  club          Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+}
