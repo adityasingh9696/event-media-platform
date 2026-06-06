@@ -6,7 +6,6 @@ FROM base AS deps
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/backend/package.json ./apps/backend/
-COPY packages/shared/package.json ./packages/shared/
 RUN pnpm install --frozen-lockfile
 
 # Build stage
@@ -25,7 +24,6 @@ RUN npm install -g pnpm
 # Copy package descriptors for workspaces
 COPY --from=builder /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
 COPY --from=builder /app/apps/backend/package.json ./apps/backend/
-COPY --from=builder /app/packages/shared ./packages/shared
 
 # Copy built bundles and assets
 COPY --from=builder /app/apps/backend/dist ./apps/backend/dist
