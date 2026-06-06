@@ -100,6 +100,21 @@ async function start() {
     // Setup Socket.IO (attaches to HTTP server)
     setupSocketIO(app.server);
 
+    // In production, start the background workers inside the same process to stay on Render's free tier
+    if (process.env.START_WORKERS === 'true' || process.env.NODE_ENV === 'production') {
+      console.info('🚀 Starting background workers inside the API server process (100% Free Stack)...');
+      try {
+        const { loadFaceModels } = await import('./lib/faceapi');
+        await loadFaceModels();
+        await import('./workers/mediaProcessor');
+        await import('./workers/aiTagger');
+        await import('./workers/faceDetector');
+        console.info('🤖 Background workers active and listening for jobs.');
+      } catch (workerErr) {
+        console.error('⚠️  Failed to start background workers inside API process:', workerErr);
+      }
+    }
+
     await app.listen({ port: PORT, host: HOST });
     console.info(`🚀 Server running at http://localhost:${PORT}`);
     console.info(`📚 API Docs at http://localhost:${PORT}/api/docs`);
