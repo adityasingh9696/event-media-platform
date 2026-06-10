@@ -7,7 +7,9 @@ import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Spinner } from '@/components/ui/Spinner';
-import { ShieldAlert, Users, Folder, ImageIcon, HardDrive, Trash2, CheckCircle } from 'lucide-react';
+import { Modal } from '@/components/ui/Modal';
+import { Input } from '@/components/ui/Input';
+import { ShieldAlert, Users, Folder, ImageIcon, HardDrive, Trash2, CheckCircle, Settings, Plus, X } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import {
   AreaChart,
@@ -25,8 +27,16 @@ export default function AdminDashboardPage() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   
-  const [activeTab, setActiveTab] = useState<'analytics' | 'users' | 'flagged' | 'queues'>('analytics');
+  const [activeTab, setActiveTab] = useState<'analytics' | 'users' | 'clubs' | 'flagged' | 'queues'>('analytics');
   const [chartMounted, setChartMounted] = useState(false);
+
+  // Club Management States
+  const [manageClubId, setManageClubId] = useState<string | null>(null);
+  const [createClubOpen, setCreateClubOpen] = useState(false);
+  const [newClubName, setNewClubName] = useState('');
+  const [newClubDesc, setNewClubDesc] = useState('');
+  const [newMemberIdentifier, setNewMemberIdentifier] = useState('');
+  const [newMemberRole, setNewMemberRole] = useState('member');
 
   // Recharts needs client mount verification
   useEffect(() => {
@@ -92,6 +102,73 @@ export default function AdminDashboardPage() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['admin-flagged-media'] });
       toast.success(variables.approved ? 'Media approved/unflagged' : 'Media deleted successfully');
+    },
+  });
+
+  // 5. Fetch Clubs
+  const { data: clubsData = [], isLoading: loadingClubs } = useQuery({
+    queryKey: ['admin-clubs-list'],
+    queryFn: async () => {
+      const { data } = await api.get('/admin/clubs');
+      return data || [];
+    },
+    enabled: user?.role === 'admin' && activeTab === 'clubs',
+  });
+
+  // 6. Fetch specific Club Members
+  const { data: clubMembers = [], isLoading: loadingMembers } = useQuery({
+    queryKey: ['admin-club-members', manageClubId],
+    queryFn: async () => {
+      const { data } = await api.get(`/admin/clubs/${manageClubId}/members`);
+      return data || [];
+    },
+    enabled: !!manageClubId,
+  });
+
+  // Club Mutations
+  const createClubMutation = useMutation({
+    mutationFn: async () => {
+      return api.post('/admin/clubs', { name: newClubName, description: newClubDesc });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-clubs-list'] });
+      toast.success('Club created successfully');
+      setCreateClubOpen(false);
+      setNewClubName('');
+      setNewClubDesc('');
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to create club')
+  });
+
+  const addMemberMutation = useMutation({
+    mutationFn: async () => {
+      return api.post(`/admin/clubs/${manageClubId}/members`, { userIdentifier: newMemberIdentifier, role: newMemberRole });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-club-members', manageClubId] });
+      toast.success('Member added successfully');
+      setNewMemberIdentifier('');
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to add member')
+  });
+
+  const updateMemberRoleMutation = useMutation({
+    mutationFn: async ({ userId, role }: { userId: string; role: string }) => {
+      return api.patch(`/admin/clubs/${manageClubId}/members/${userId}`, { role });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-club-members', manageClubId] });
+      toast.success('Member role updated');
+    },
+  });
+
+  const removeMemberMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      return api.delete(`/admin/clubs/${manageClubId}/members/${userId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-club-members', manageClubId] });
+      toast.success('Member removed');
     },
   });
 
@@ -161,6 +238,7 @@ export default function AdminDashboardPage() {
         {[
           { id: 'analytics', label: 'Analytics Insights' },
           { id: 'users', label: 'Roster & Scopes' },
+          { id: 'clubs', label: 'Club Management' },
           { id: 'flagged', label: `Moderation (${flaggedMedia.length})` },
           { id: 'queues', label: 'Queue Diagnostics' },
         ].map((tab) => (
@@ -272,6 +350,54 @@ export default function AdminDashboardPage() {
           </div>
         )}
 
+        {/* Club Management */}
+        {activeTab === 'clubs' && (
+          <div className="space-y-4">
+            <div className="flex justify-end">
+              <Button onClick={() => setCreateClubOpen(true)} className="shadow-glow-md">
+                <Plus size={16} className="mr-2" /> Create Club
+              </Button>
+            </div>
+            
+            <div className="rounded-2xl border border-[#1e1e2e] bg-[#111118]/40 overflow-hidden">
+              {loadingClubs ? (
+                <div className="flex justify-center py-20"><Spinner /></div>
+              ) : clubsData.length === 0 ? (
+                <div className="text-center py-20 text-xs text-gray-500 italic">No clubs found.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-[#1e1e2e] bg-[#111118] text-gray-500 uppercase font-bold tracking-wider">
+                        <th className="p-4">Club Name</th>
+                        <th className="p-4">Description</th>
+                        <th className="p-4">Members</th>
+                        <th className="p-4">Events</th>
+                        <th className="p-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#1e1e2e]/50">
+                      {clubsData.map((c: any) => (
+                        <tr key={c.id} className="hover:bg-[#1a1a27]/20 text-gray-300">
+                          <td className="p-4 font-bold">{c.name}</td>
+                          <td className="p-4 text-gray-400 truncate max-w-[200px]">{c.description || 'No description'}</td>
+                          <td className="p-4 font-mono">{c._count?.members || 0}</td>
+                          <td className="p-4 font-mono">{c._count?.events || 0}</td>
+                          <td className="p-4 text-right">
+                            <Button size="sm" variant="secondary" onClick={() => setManageClubId(c.id)}>
+                              <Settings size={14} className="mr-1" /> Manage Members
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Content Moderation */}
         {activeTab === 'flagged' && (
           <div className="rounded-2xl border border-[#1e1e2e] bg-[#111118]/40 overflow-hidden">
@@ -372,6 +498,134 @@ export default function AdminDashboardPage() {
           </div>
         )}
       </div>
+
+      {/* Create Club Modal */}
+      <Modal isOpen={createClubOpen} onClose={() => setCreateClubOpen(false)} title="Create New Club">
+        <div className="space-y-4 pt-4 text-sm">
+          <div className="space-y-1">
+            <label className="text-xs text-gray-400 font-semibold uppercase">Club Name</label>
+            <Input 
+              value={newClubName} 
+              onChange={e => setNewClubName(e.target.value)} 
+              placeholder="e.g. Photography Club" 
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-gray-400 font-semibold uppercase">Description (Optional)</label>
+            <Input 
+              value={newClubDesc} 
+              onChange={e => setNewClubDesc(e.target.value)} 
+              placeholder="Brief description..." 
+            />
+          </div>
+          <div className="pt-2 flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setCreateClubOpen(false)}>Cancel</Button>
+            <Button 
+              onClick={() => createClubMutation.mutate()} 
+              disabled={!newClubName || createClubMutation.isPending}
+            >
+              {createClubMutation.isPending ? 'Creating...' : 'Create Club'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Manage Members Modal */}
+      <Modal 
+        isOpen={!!manageClubId} 
+        onClose={() => { setManageClubId(null); setNewMemberIdentifier(''); }} 
+        title="Manage Club Members"
+      >
+        <div className="space-y-6 pt-4">
+          
+          {/* Add Member Form */}
+          <div className="bg-[#111118]/60 p-4 rounded-xl border border-[#1e1e2e] space-y-3">
+            <h4 className="text-xs font-bold uppercase text-gray-400">Add New Member</h4>
+            <div className="flex gap-2 items-end">
+              <div className="flex-1 space-y-1">
+                <label className="text-xs text-gray-500">Username or Email</label>
+                <Input 
+                  value={newMemberIdentifier}
+                  onChange={e => setNewMemberIdentifier(e.target.value)}
+                  placeholder="user@example.com"
+                  className="h-9"
+                />
+              </div>
+              <div className="w-32 space-y-1">
+                <label className="text-xs text-gray-500">Role</label>
+                <select 
+                  value={newMemberRole}
+                  onChange={e => setNewMemberRole(e.target.value)}
+                  className="w-full bg-[#0a0a0f] border border-[#1e1e2e] text-sm text-gray-300 rounded h-9 px-2 focus:border-[#6366f1]/50 outline-none"
+                >
+                  <option value="admin">Admin</option>
+                  <option value="photographer">Photographer</option>
+                  <option value="member">Member</option>
+                  <option value="viewer">Viewer</option>
+                </select>
+              </div>
+              <Button 
+                onClick={() => addMemberMutation.mutate()} 
+                disabled={!newMemberIdentifier || addMemberMutation.isPending}
+                className="h-9"
+              >
+                {addMemberMutation.isPending ? <Spinner size="sm" /> : 'Add'}
+              </Button>
+            </div>
+          </div>
+
+          {/* Members List */}
+          <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2">
+            <h4 className="text-xs font-bold uppercase text-gray-400 sticky top-0 bg-[#0a0a0f] py-1 z-10">
+              Current Members ({clubMembers.length})
+            </h4>
+            
+            {loadingMembers ? (
+              <div className="flex justify-center py-8"><Spinner /></div>
+            ) : clubMembers.length === 0 ? (
+              <div className="text-xs text-gray-500 text-center py-4">No members yet.</div>
+            ) : (
+              <div className="space-y-2">
+                {clubMembers.map((m: any) => (
+                  <div key={m.userId} className="flex items-center justify-between bg-[#111118]/40 p-3 rounded-lg border border-[#1e1e2e]">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold text-xs uppercase overflow-hidden">
+                        {m.user.avatarUrl ? <img src={m.user.avatarUrl} alt="" className="w-full h-full object-cover" /> : m.user.displayName[0]}
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-gray-200">{m.user.displayName}</p>
+                        <p className="text-xs text-gray-500">@{m.user.username}</p>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-2">
+                      <select 
+                        value={m.role}
+                        onChange={(e) => updateMemberRoleMutation.mutate({ userId: m.userId, role: e.target.value })}
+                        className="bg-[#0a0a0f] border border-[#1e1e2e] text-xs text-gray-300 rounded px-2 py-1 focus:border-[#6366f1]/50 outline-none"
+                      >
+                        <option value="admin">Admin</option>
+                        <option value="photographer">Photographer</option>
+                        <option value="member">Member</option>
+                        <option value="viewer">Viewer</option>
+                      </select>
+                      <button 
+                        onClick={() => removeMemberMutation.mutate(m.userId)}
+                        className="p-1.5 text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors"
+                        title="Remove member"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          
+        </div>
+      </Modal>
+
     </div>
   );
 }

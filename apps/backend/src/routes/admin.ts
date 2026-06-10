@@ -31,6 +31,20 @@ const moderationSchema = z.object({
   approved: z.boolean(),
 });
 
+const createClubSchema = z.object({
+  name: z.string().min(2),
+  description: z.string().optional(),
+});
+
+const addClubMemberSchema = z.object({
+  userIdentifier: z.string(), // email or username
+  role: z.enum(['admin', 'photographer', 'member', 'viewer']).default('member'),
+});
+
+const updateClubMemberSchema = z.object({
+  role: z.enum(['admin', 'photographer', 'member', 'viewer']),
+});
+
 // ─── Route Plugin ─────────────────────────────────────────────────────────────
 
 export async function adminRoutes(app: FastifyInstance): Promise<void> {
@@ -247,6 +261,209 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       });
 
       return reply.code(200).send(clubs);
+    }
+  );
+
+  // ── POST /admin/clubs ──────────────────────────────────────────────────────
+  app.post(
+    '/clubs',
+    {
+      schema: {
+        tags: ['Admin'],
+        summary: 'Create a new club',
+        security: [{ BearerAuth: [] }],
+        body: {
+          type: 'object',
+          required: ['name'],
+          properties: {
+            name: { type: 'string' },
+            description: { type: 'string' },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const { name, description } = createClubSchema.parse(request.body);
+      
+      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
+      
+      const existing = await prisma.club.findFirst({ where: { OR: [{ name }, { slug }] } });
+      if (existing) {
+        return reply.code(400).send({ statusCode: 400, error: 'Bad Request', message: 'Club name or slug already exists' });
+      }
+
+      const club = await prisma.club.create({
+        data: { name, slug, description },
+      });
+
+      // Also create a default watermark config for the new club
+      await prisma.watermarkConfig.create({ data: { clubId: club.id } });
+
+      return reply.code(201).send(club);
+    }
+  );
+
+  // ── GET /admin/clubs/:clubId/members ───────────────────────────────────────
+  app.get(
+    '/clubs/:clubId/members',
+    {
+      schema: {
+        tags: ['Admin'],
+        summary: 'Get club members',
+        security: [{ BearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['clubId'],
+          properties: { clubId: { type: 'string' } },
+        },
+      },
+    },
+    async (request: FastifyRequest<{ Params: { clubId: string } }>, reply: FastifyReply) => {
+      const members = await prisma.clubMember.findMany({
+        where: { clubId: request.params.clubId },
+        include: {
+          user: { select: { id: true, username: true, email: true, displayName: true, avatarUrl: true } }
+        },
+        orderBy: { joinedAt: 'desc' }
+      });
+      return reply.code(200).send(members);
+    }
+  );
+
+  // ── POST /admin/clubs/:clubId/members ──────────────────────────────────────
+  app.post(
+    '/clubs/:clubId/members',
+    {
+      schema: {
+        tags: ['Admin'],
+        summary: 'Add a user to a club',
+        security: [{ BearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['clubId'],
+          properties: { clubId: { type: 'string' } },
+        },
+        body: {
+          type: 'object',
+          required: ['userIdentifier', 'role'],
+          properties: {
+            userIdentifier: { type: 'string' },
+            role: { type: 'string', enum: ['admin', 'photographer', 'member', 'viewer'] },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest<{ Params: { clubId: string } }>, reply: FastifyReply) => {
+      const { userIdentifier, role } = addClubMemberSchema.parse(request.body);
+      const { clubId } = request.params;
+
+      const user = await prisma.user.findFirst({
+        where: {
+          OR: [
+            { email: userIdentifier },
+            { username: userIdentifier.replace('@', '') }
+          ]
+        }
+      });
+
+      if (!user) {
+        return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: 'User not found' });
+      }
+
+      const existing = await prisma.clubMember.findUnique({
+        where: { userId_clubId: { userId: user.id, clubId } }
+      });
+
+      if (existing) {
+        return reply.code(400).send({ statusCode: 400, error: 'Bad Request', message: 'User is already a member of this club' });
+      }
+
+      const membership = await prisma.clubMember.create({
+        data: {
+          userId: user.id,
+          clubId,
+          role: role as any,
+        },
+        include: {
+          user: { select: { id: true, username: true, email: true, displayName: true, avatarUrl: true } }
+        }
+      });
+
+      return reply.code(201).send(membership);
+    }
+  );
+
+  // ── PATCH /admin/clubs/:clubId/members/:userId ─────────────────────────────
+  app.patch(
+    '/clubs/:clubId/members/:userId',
+    {
+      schema: {
+        tags: ['Admin'],
+        summary: 'Update a club members role',
+        security: [{ BearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['clubId', 'userId'],
+          properties: { 
+            clubId: { type: 'string' },
+            userId: { type: 'string' }
+          },
+        },
+        body: {
+          type: 'object',
+          required: ['role'],
+          properties: {
+            role: { type: 'string', enum: ['admin', 'photographer', 'member', 'viewer'] },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest<{ Params: { clubId: string, userId: string } }>, reply: FastifyReply) => {
+      const { role } = updateClubMemberSchema.parse(request.body);
+      const { clubId, userId } = request.params;
+
+      const membership = await prisma.clubMember.update({
+        where: { userId_clubId: { userId, clubId } },
+        data: { role: role as any },
+        include: {
+          user: { select: { id: true, username: true, email: true, displayName: true, avatarUrl: true } }
+        }
+      }).catch(() => null);
+
+      if (!membership) {
+        return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: 'Membership not found' });
+      }
+
+      return reply.code(200).send(membership);
+    }
+  );
+
+  // ── DELETE /admin/clubs/:clubId/members/:userId ────────────────────────────
+  app.delete(
+    '/clubs/:clubId/members/:userId',
+    {
+      schema: {
+        tags: ['Admin'],
+        summary: 'Remove a user from a club',
+        security: [{ BearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['clubId', 'userId'],
+          properties: { 
+            clubId: { type: 'string' },
+            userId: { type: 'string' }
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest<{ Params: { clubId: string, userId: string } }>, reply: FastifyReply) => {
+      const { clubId, userId } = request.params;
+
+      await prisma.clubMember.delete({
+        where: { userId_clubId: { userId, clubId } }
+      }).catch(() => null);
+
+      return reply.code(200).send({ message: 'User removed from club' });
     }
   );
 
