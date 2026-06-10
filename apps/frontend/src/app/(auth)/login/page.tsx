@@ -300,10 +300,10 @@ export default function LoginPage() {
             <p className="text-xs text-muted font-medium mb-2">Demo credentials:</p>
             <div className="space-y-1">
               <p className="text-xs text-muted-foreground">
-                Email: <span className="text-foreground font-mono">admin@mediahub.dev</span>
+                Email: <span className="text-foreground font-mono">admin@demo.com</span>
               </p>
               <p className="text-xs text-muted-foreground">
-                Password: <span className="text-foreground font-mono">admin123</span>
+                Password: <span className="text-foreground font-mono">Admin@123</span>
               </p>
             </div>
           </motion.div>

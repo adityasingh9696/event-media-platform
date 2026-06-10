@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
 import { Spinner } from '@/components/ui/Spinner';
-import { Calendar, MapPin, Plus, Folder, Image as ImageIcon, ArrowLeft } from 'lucide-react';
+import { Calendar, MapPin, Plus, Folder, Image as ImageIcon, ArrowLeft, Edit2, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'react-hot-toast';
 
@@ -25,6 +25,14 @@ export default function EventDetailsPage() {
   const [albumName, setAlbumName] = useState('');
   const [albumDesc, setAlbumDesc] = useState('');
   const [albumVis, setAlbumVis] = useState<'public' | 'club_only' | 'private'>('public');
+
+  const [editEventOpen, setEditEventOpen] = useState(false);
+  const [eventName, setEventName] = useState('');
+  const [eventDesc, setEventDesc] = useState('');
+  const [eventCat, setEventCat] = useState('other');
+  const [eventDate, setEventDate] = useState('');
+  const [eventLoc, setEventLoc] = useState('');
+  const [eventCoverUrl, setEventCoverUrl] = useState('');
 
   // Fetch Event details
   const { data: event, isLoading, error } = useQuery({
@@ -64,6 +72,51 @@ export default function EventDetailsPage() {
       description: albumDesc,
       visibility: albumVis,
     });
+  };
+
+  const editEventMutation = useMutation({
+    mutationFn: async (updatedEvent: any) => {
+      return api.patch(`/events/${eventId}`, updatedEvent);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['event-details', eventId] });
+      toast.success('Event updated successfully!');
+      setEditEventOpen(false);
+    },
+    onError: (err: any) => {
+      toast.error(err.response?.data?.message || 'Failed to update event');
+    },
+  });
+
+  const deleteEventMutation = useMutation({
+    mutationFn: async () => {
+      return api.delete(`/events/${eventId}`);
+    },
+    onSuccess: () => {
+      toast.success('Event deleted successfully!');
+      router.push('/events');
+    },
+    onError: (err: any) => {
+      toast.error(err.response?.data?.message || 'Failed to delete event');
+    },
+  });
+
+  const handleEditEvent = (e: React.FormEvent) => {
+    e.preventDefault();
+    editEventMutation.mutate({
+      name: eventName,
+      description: eventDesc,
+      category: eventCat,
+      date: new Date(eventDate).toISOString(),
+      location: eventLoc || undefined,
+      coverImageUrl: eventCoverUrl || undefined,
+    });
+  };
+  
+  const handleDeleteEvent = () => {
+    if (window.confirm('Are you sure you want to delete this event and all its albums? This action cannot be undone.')) {
+      deleteEventMutation.mutate();
+    }
   };
 
   if (isLoading) {
@@ -143,10 +196,35 @@ export default function EventDetailsPage() {
           </div>
 
           {isMember && (
-            <Button onClick={() => setCreateAlbumOpen(true)} className="shrink-0 shadow-glow-md">
-              <Plus size={16} className="mr-2" />
-              Create Album
-            </Button>
+            <div className="flex flex-col gap-2 shrink-0">
+              <Button onClick={() => setCreateAlbumOpen(true)} className="shadow-glow-md">
+                <Plus size={16} className="mr-2" />
+                Create Album
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setEventName(event.name);
+                  setEventDesc(event.description || '');
+                  setEventCat(event.category || 'other');
+                  setEventDate(event.date ? new Date(event.date).toISOString().slice(0, 16) : '');
+                  setEventLoc(event.location || '');
+                  setEventCoverUrl(event.coverImageUrl || '');
+                  setEditEventOpen(true);
+                }}
+              >
+                <Edit2 size={16} className="mr-2" />
+                Edit Event
+              </Button>
+              <Button
+                variant="danger"
+                onClick={handleDeleteEvent}
+                disabled={deleteEventMutation.isPending}
+              >
+                {deleteEventMutation.isPending ? <Spinner size="sm" className="mr-2" /> : <Trash2 size={16} className="mr-2" />}
+                Delete
+              </Button>
+            </div>
           )}
         </div>
       </section>
@@ -253,6 +331,94 @@ export default function EventDetailsPage() {
             </Button>
             <Button type="submit" disabled={createAlbumMutation.isPending}>
               {createAlbumMutation.isPending ? <Spinner size="sm" /> : 'Create'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Edit Event Modal */}
+      <Modal isOpen={editEventOpen} onClose={() => setEditEventOpen(false)} title="Edit Event">
+        <form onSubmit={handleEditEvent} className="space-y-4">
+          <Input
+            label="Event Name"
+            placeholder="E.g. Annual Fest 2025"
+            value={eventName}
+            onChange={(e) => setEventName(e.target.value)}
+            required
+          />
+
+          <div>
+            <label className="mb-2 block text-xs font-semibold text-gray-400 uppercase tracking-wider">
+              Description
+            </label>
+            <textarea
+              placeholder="Provide event details, description, schedules..."
+              rows={3}
+              value={eventDesc}
+              onChange={(e) => setEventDesc(e.target.value)}
+              className="w-full rounded-lg border border-[#1e1e2e] bg-[#111118] px-3.5 py-2.5 text-sm text-gray-200 outline-none focus:border-[#6366f1]/50 focus:ring-1 focus:ring-[#6366f1]/50"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-2 block text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                Category
+              </label>
+              <select
+                value={eventCat}
+                onChange={(e) => setEventCat(e.target.value)}
+                className="w-full rounded-lg border border-[#1e1e2e] bg-[#111118] px-3.5 py-2.5 text-sm text-gray-200 outline-none focus:border-[#6366f1]/50"
+              >
+                <option value="workshop">Workshop</option>
+                <option value="trip">Trip & Trek</option>
+                <option value="cultural">Cultural</option>
+                <option value="party">Party</option>
+                <option value="competition">Competition</option>
+                <option value="photoshoot">Photoshoot</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-2 block text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                Date & Time
+              </label>
+              <input
+                type="datetime-local"
+                value={eventDate}
+                onChange={(e) => setEventDate(e.target.value)}
+                required
+                className="w-full rounded-lg border border-[#1e1e2e] bg-[#111118] px-3.5 py-2 text-sm text-gray-200 outline-none focus:border-[#6366f1]/50"
+              />
+            </div>
+          </div>
+
+          <Input
+            label="Location"
+            placeholder="E.g. Main Seminar Hall"
+            value={eventLoc}
+            onChange={(e) => setEventLoc(e.target.value)}
+          />
+
+          <Input
+            label="Cover Image URL (Optional)"
+            placeholder="E.g. https://unsplash.com/..."
+            value={eventCoverUrl}
+            onChange={(e) => setEventCoverUrl(e.target.value)}
+          />
+
+          <div className="flex justify-end gap-2.5 pt-3 border-t border-[#1e1e2e]">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setEditEventOpen(false)}
+              disabled={editEventMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={editEventMutation.isPending}>
+              {editEventMutation.isPending ? <Spinner size="sm" /> : 'Save Changes'}
             </Button>
           </div>
         </form>

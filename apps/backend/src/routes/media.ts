@@ -4,7 +4,7 @@ import { nanoid } from 'nanoid';
 import { prisma } from '../lib/prisma';
 import { MediaMetadata } from '../lib/mongodb';
 import { generateUploadSignature, deleteFromCloudinary, getOptimizedUrl } from '../lib/cloudinary';
-import { mediaProcessQueue } from '../lib/queue';
+import { enqueueJob, QUEUE_MEDIA_PROCESS } from '../lib/queue';
 import { authenticate } from '../middlewares/authenticate';
 import { applyWatermark } from '../services/watermark';
 
@@ -181,17 +181,13 @@ export async function mediaRoutes(app: FastifyInstance): Promise<void> {
       });
 
       // Enqueue processing job
-      await mediaProcessQueue.add(
-        'process',
-        {
-          mediaId,
-          cloudinaryPublicId: body.cloudinaryPublicId,
-          cloudinaryUrl: body.cloudinaryUrl,
-          albumId: body.albumId,
-          mimeType: body.mimeType,
-        },
-        { jobId: `process:${mediaId}` }
-      );
+      await enqueueJob(QUEUE_MEDIA_PROCESS, {
+        mediaId,
+        cloudinaryPublicId: body.cloudinaryPublicId,
+        cloudinaryUrl: body.cloudinaryUrl,
+        albumId: body.albumId,
+        mimeType: body.mimeType,
+      });
 
       return reply.code(201).send({
         ...media,

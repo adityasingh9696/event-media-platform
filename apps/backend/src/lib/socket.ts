@@ -3,6 +3,7 @@ import { createAdapter } from '@socket.io/redis-adapter';
 import { Server as HttpServer } from 'http';
 import Redis from 'ioredis';
 import jwt from 'jsonwebtoken';
+import { isRedisMocked } from './redis';
 
 // ─── Singleton ────────────────────────────────────────────────────────────────
 let ioInstance: SocketIOServer | null = null;
@@ -36,21 +37,35 @@ export function setupSocketIO(httpServer: HttpServer): SocketIOServer {
     pingInterval: 25000,
   });
 
-  // Attach Redis adapter for multi-node support
-  try {
-    const pubClient = new Redis(redisUrl, { lazyConnect: true });
-    const subClient = pubClient.duplicate();
-
-    Promise.all([pubClient.connect(), subClient.connect()])
-      .then(() => {
-        io.adapter(createAdapter(pubClient, subClient));
-        console.info('✅ Socket.IO Redis adapter attached');
-      })
-      .catch((err) => {
-        console.warn('⚠️  Socket.IO Redis adapter failed, using in-memory:', err.message);
+  // Attach Redis adapter for multi-node support if Redis is not mocked
+  if (!isRedisMocked()) {
+    try {
+      const pubClient = new Redis(redisUrl, { 
+        lazyConnect: true,
+        connectTimeout: 5000,
+        maxRetriesPerRequest: 0,
       });
-  } catch (err) {
-    console.warn('⚠️  Socket.IO Redis adapter init failed:', (err as Error).message);
+      const subClient = new Redis(redisUrl, { 
+        lazyConnect: true,
+        connectTimeout: 5000,
+        maxRetriesPerRequest: 0,
+      });
+
+      Promise.all([pubClient.connect(), subClient.connect()])
+        .then(() => {
+          io.adapter(createAdapter(pubClient, subClient));
+          console.info('✅ Socket.IO Redis adapter attached');
+        })
+        .catch((err) => {
+          console.warn('⚠️  Socket.IO Redis adapter failed, using in-memory:', err.message);
+          try { pubClient.disconnect(); } catch {}
+          try { subClient.disconnect(); } catch {}
+        });
+    } catch (err) {
+      console.warn('⚠️  Socket.IO Redis adapter init failed:', (err as Error).message);
+    }
+  } else {
+    console.info('ℹ️  Socket.IO: Redis is mocked, using in-memory adapter');
   }
 
   // ── Authentication Middleware ──────────────────────────────────────────────

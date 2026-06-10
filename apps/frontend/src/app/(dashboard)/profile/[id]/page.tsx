@@ -7,10 +7,12 @@ import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
+import { Input } from '@/components/ui/Input';
+import { Modal } from '@/components/ui/Modal';
 import { Spinner } from '@/components/ui/Spinner';
 import { MediaCard } from '@/components/media/MediaCard';
 import { LightboxViewer } from '@/components/media/LightboxViewer';
-import { User, Image as ImageIcon, Camera, Star, Calendar, Trash2, ShieldCheck } from 'lucide-react';
+import { User, Image as ImageIcon, Camera, Star, Calendar, Trash2, ShieldCheck, Edit2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 export default function ProfilePage() {
@@ -27,6 +29,10 @@ export default function ProfilePage() {
   );
   const [selectedMediaId, setSelectedMediaId] = useState<string | null>(null);
   const [enrolling, setEnrolling] = useState(false);
+  const [editProfileOpen, setEditProfileOpen] = useState(false);
+  const [editDisplayName, setEditDisplayName] = useState('');
+  const [editBio, setEditBio] = useState('');
+  const [editAvatarUrl, setEditAvatarUrl] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Fetch Public Profile details
@@ -102,6 +108,30 @@ export default function ProfilePage() {
       toast.error('Failed to remove face enrollment');
     },
   });
+
+  // Edit Profile Mutation
+  const editProfileMutation = useMutation({
+    mutationFn: async (data: any) => {
+      return api.patch('/users/me', data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['profile-details', profileId] });
+      toast.success('Profile updated successfully!');
+      setEditProfileOpen(false);
+    },
+    onError: (err: any) => {
+      toast.error(err.response?.data?.message || 'Failed to update profile');
+    },
+  });
+
+  const handleEditProfile = (e: React.FormEvent) => {
+    e.preventDefault();
+    editProfileMutation.mutate({
+      displayName: editDisplayName || undefined,
+      bio: editBio || undefined,
+      avatarUrl: editAvatarUrl || undefined,
+    });
+  };
 
   const handleSelfieUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -184,6 +214,25 @@ export default function ProfilePage() {
               <span>{profile._count?.uploadedMedia || 0} Uploads</span>
             </div>
           </div>
+
+          {isMe && (
+            <div className="absolute top-6 right-6">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setEditDisplayName(profile.displayName || '');
+                  setEditBio(profile.bio || '');
+                  setEditAvatarUrl(profile.avatarUrl || '');
+                  setEditProfileOpen(true);
+                }}
+                className="text-gray-400 hover:text-white"
+              >
+                <Edit2 size={16} className="mr-2" />
+                Edit Profile
+              </Button>
+            </div>
+          )}
         </div>
       </section>
 
@@ -335,6 +384,49 @@ export default function ProfilePage() {
       {selectedMediaId && (
         <LightboxViewer mediaId={selectedMediaId} onClose={() => setSelectedMediaId(null)} />
       )}
+
+      {/* Edit Profile Modal */}
+      <Modal isOpen={editProfileOpen} onClose={() => setEditProfileOpen(false)} title="Edit Profile">
+        <form onSubmit={handleEditProfile} className="space-y-4">
+          <Input
+            label="Display Name"
+            placeholder="E.g. Alex Shot"
+            value={editDisplayName}
+            onChange={(e) => setEditDisplayName(e.target.value)}
+          />
+          <div>
+            <label className="mb-2 block text-xs font-semibold text-gray-400 uppercase tracking-wider">
+              Bio
+            </label>
+            <textarea
+              placeholder="Tell us about yourself..."
+              rows={3}
+              value={editBio}
+              onChange={(e) => setEditBio(e.target.value)}
+              className="w-full rounded-lg border border-[#1e1e2e] bg-[#111118] px-3.5 py-2.5 text-sm text-gray-200 outline-none focus:border-[#6366f1]/50 focus:ring-1 focus:ring-[#6366f1]/50"
+            />
+          </div>
+          <Input
+            label="Avatar URL"
+            placeholder="https://..."
+            value={editAvatarUrl}
+            onChange={(e) => setEditAvatarUrl(e.target.value)}
+          />
+          <div className="flex justify-end gap-2.5 pt-3 border-t border-[#1e1e2e]">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setEditProfileOpen(false)}
+              disabled={editProfileMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={editProfileMutation.isPending}>
+              {editProfileMutation.isPending ? <Spinner size="sm" /> : 'Save Changes'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }
