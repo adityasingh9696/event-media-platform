@@ -16,6 +16,7 @@ COPY --from=deps /app /app
 COPY . .
 RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" pnpm --filter backend run db:generate
 RUN pnpm --filter backend run build
+RUN pnpm run download-models
 
 # Production runner stage
 FROM node:20-alpine AS runner
@@ -30,6 +31,7 @@ COPY --from=builder /app/apps/backend/package.json ./apps/backend/
 # Copy built bundles and assets
 COPY --from=builder /app/apps/backend/dist ./apps/backend/dist
 COPY --from=builder /app/apps/backend/prisma ./apps/backend/prisma
+COPY --from=builder /app/apps/backend/models ./apps/backend/models
 
 # Install production dependencies only
 RUN pnpm install --prod --frozen-lockfile
